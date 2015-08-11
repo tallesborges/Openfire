@@ -1282,6 +1282,31 @@
         </for>
 
     </target>
+    <target name="mebblePlugin" description="Builds GeoChat" depends="anttasks">
+
+        <tstamp>
+            <format property="buildJavaDate" pattern="MMM dd, yyyy"/>
+        </tstamp>
+        <!-- Call jar task, can't do this is as a 'depends' call of this target because
+             of the way class loading works for jspc calls.
+        -->
+        <antcall target="clean"/>
+        <antcall target="openfire"/>
+
+        <mkdir dir="${plugin.dest.dir}"/>
+
+        <!-- Get a list of subdirs of the main plugins dir. This tells us which plugins to make. -->
+        <subdirinfo dir="${plugin.src.dir}" property="dirlist" ifexists="mebble"
+                    except="admin"/>
+
+        <antcall target="-plugins-impl"/>
+
+        <!-- Update/create target/openfire directory -->
+        <antcall target="openfireHome"/>
+
+    </target>
+
+
     <target name="plugin" description="build one plugin">
         <mkdir dir="${plugin.dest.dir}"/>
 
