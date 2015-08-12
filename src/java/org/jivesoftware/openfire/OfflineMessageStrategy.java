@@ -112,10 +112,10 @@ public class OfflineMessageStrategy extends BasicModule implements ServerFeature
                     return;
                 }
                 // // For a message stanza of type "groupchat", the server MUST return an error to the sender, which SHOULD be <service-unavailable/>.
-                else if (message.getType() == Message.Type.groupchat) {
-                    bounce(message);
-                    return;
-                }
+//                else if (message.getType() == Message.Type.groupchat) {
+//                    bounce(message);
+//                    return;
+//                }
             } else {
                 // 8.5.3.  localpart@domainpart/resourcepart
                 // 8.5.3.2.1.  Message
