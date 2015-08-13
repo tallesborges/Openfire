@@ -2,15 +2,15 @@
  * $RCSfile: PresenceRouter.java,v $
  * $Revision: 3138 $
  * $Date: 2005-12-01 02:13:26 -0300 (Thu, 01 Dec 2005) $
- *
+ * <p>
  * Copyright (C) 2005-2008 Jive Software. All rights reserved.
- *
+ * <p>
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
+ * <p>
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * <p>
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -37,6 +37,8 @@ import org.xmpp.packet.Packet;
 import org.xmpp.packet.PacketError;
 import org.xmpp.packet.Presence;
 
+import java.util.List;
+
 /**
  * <p>Route presence packets throughout the server.</p>
  * <p>Routing is based on the recipient and sender addresses. The typical
@@ -48,7 +50,7 @@ import org.xmpp.packet.Presence;
  */
 public class PresenceRouter extends BasicModule {
 
-	private static final Logger Log = LoggerFactory.getLogger(PresenceRouter.class);
+    private static final Logger Log = LoggerFactory.getLogger(PresenceRouter.class);
 
     private RoutingTable routingTable;
     private PresenceUpdateHandler updateHandler;
@@ -58,6 +60,7 @@ public class PresenceRouter extends BasicModule {
     private EntityCapabilitiesManager entityCapsManager;
     private MulticastRouter multicastRouter;
     private String serverName;
+    private OfflineMessageStrategy messageStrategy;
 
     /**
      * Constructs a presence router.
@@ -82,17 +85,15 @@ public class PresenceRouter extends BasicModule {
             InterceptorManager.getInstance().invokeInterceptors(packet, session, true, false);
             if (session == null || session.getStatus() != Session.STATUS_CONNECTED) {
                 handle(packet);
-            }
-            else {
+            } else {
                 packet.setTo(session.getAddress());
-                packet.setFrom((JID)null);
+                packet.setFrom((JID) null);
                 packet.setError(PacketError.Condition.not_authorized);
                 session.process(packet);
             }
             // Invoke the interceptors after we have processed the read packet
             InterceptorManager.getInstance().invokeInterceptors(packet, session, true, true);
-        }
-        catch (PacketRejectedException e) {
+        } catch (PacketRejectedException e) {
             if (session != null) {
                 // An interceptor rejected this packet so answer a not_allowed error
                 Presence reply = new Presence();
@@ -146,14 +147,13 @@ public class PresenceRouter extends BasicModule {
                         serverName.equals(recipientJID.getDomain())) {
                     entityCapsManager.process(packet);
                     updateHandler.process(packet);
-                }
-                else {
+                } else {
                     // Trigger events for presences of remote users
                     if (senderJID != null && !serverName.equals(senderJID.getDomain()) &&
                             !routingTable.hasComponentRoute(senderJID)) {
                         entityCapsManager.process(packet);
                     }
-                    
+
                     // Check that sender session is still active (let unavailable presence go through)
                     Session session = sessionManager.getSession(packet.getFrom());
                     if (session != null && session.getStatus() == Session.STATUS_CLOSED && type == null) {
@@ -163,40 +163,38 @@ public class PresenceRouter extends BasicModule {
 
                     // The user sent a directed presence to an entity
                     // Broadcast it to all connected resources
-                    for (JID jid : routingTable.getRoutes(recipientJID, senderJID)) {
+                    List<JID> routes = routingTable.getRoutes(recipientJID, senderJID);
+                    for (JID jid : routes) {
                         // Register the sent directed presence
                         updateHandler.directedPresenceSent(packet, jid, recipientJID.toString());
                         // Route the packet
                         routingTable.routePacket(jid, packet, false);
                     }
+                    if (routes.size() == 0) {
+                        routingFailed(recipientJID, packet);
+                    }
                 }
 
-            }
-            else if (Presence.Type.subscribe == type // presence subscriptions
+            } else if (Presence.Type.subscribe == type // presence subscriptions
                     || Presence.Type.unsubscribe == type
                     || Presence.Type.subscribed == type
-                    || Presence.Type.unsubscribed == type)
-            {
+                    || Presence.Type.unsubscribed == type) {
                 subscribeHandler.process(packet);
-            }
-            else if (Presence.Type.probe == type) {
+            } else if (Presence.Type.probe == type) {
                 // Handle a presence probe sent by a remote server
                 if (!XMPPServer.getInstance().isLocal(recipientJID)) {
                     routingTable.routePacket(recipientJID, packet, false);
-                }
-                else {
+                } else {
                     // Handle probe to a local user
                     presenceManager.handleProbe(packet);
                 }
-            }
-            else {
+            } else {
                 // It's an unknown or ERROR type, just deliver it because there's nothing
                 // else to do with it
                 routingTable.routePacket(recipientJID, packet, false);
             }
 
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
             Log.error(LocaleUtils.getLocalizedString("admin.error.routing"), e);
             Session session = sessionManager.getSession(packet.getFrom());
             if (session != null) {
@@ -206,7 +204,7 @@ public class PresenceRouter extends BasicModule {
     }
 
     @Override
-	public void initialize(XMPPServer server) {
+    public void initialize(XMPPServer server) {
         super.initialize(server);
         serverName = server.getServerInfo().getXMPPDomain();
         routingTable = server.getRoutingTable();
@@ -216,6 +214,8 @@ public class PresenceRouter extends BasicModule {
         multicastRouter = server.getMulticastRouter();
         sessionManager = server.getSessionManager();
         entityCapsManager = EntityCapabilitiesManager.getInstance();
+        messageStrategy = server.getOfflineMessageStrategy();
+
     }
 
     /**
@@ -226,5 +226,6 @@ public class PresenceRouter extends BasicModule {
      */
     public void routingFailed(JID receipient, Packet packet) {
         // presence packets are dropped silently
+        messageStrategy.storeUncheckedPresence((Presence) packet);
     }
 }

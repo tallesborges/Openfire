@@ -712,8 +712,8 @@ public class SessionManager extends BasicModule implements ClusterEventListener/
         // User sessions had negative presence before this change so deliver messages
         if (session.canFloodOfflineMessages()) {
             OfflineMessageStore messageStore = server.getOfflineMessageStore();
-            Collection<OfflineMessage> messages = messageStore.getMessages(session.getAuthToken().getUsername(), true);
-            for (Message message : messages) {
+            Collection<Packet> messages = messageStore.getMessages(session.getAuthToken().getUsername(), true);
+            for (Packet message : messages) {
                 session.process(message);
             }
         }

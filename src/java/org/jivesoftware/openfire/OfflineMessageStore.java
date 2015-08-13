@@ -41,6 +41,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.xmpp.packet.JID;
 import org.xmpp.packet.Message;
+import org.xmpp.packet.Packet;
+import org.xmpp.packet.Presence;
 
 import java.io.StringReader;
 import java.sql.Connection;
@@ -66,10 +68,10 @@ public class OfflineMessageStore extends BasicModule implements UserEventListene
     private static final Logger Log = LoggerFactory.getLogger(OfflineMessageStore.class);
 
     private static final String INSERT_OFFLINE =
-            "INSERT INTO ofOffline (username, messageID, creationDate, messageSize, stanza) " +
-                    "VALUES (?, ?, ?, ?, ?)";
+            "INSERT INTO ofOffline (username, messageID, creationDate, messageSize, stanza, type) " +
+                    "VALUES (?, ?, ?, ?, ?, ?)";
     private static final String LOAD_OFFLINE =
-            "SELECT stanza, creationDate FROM ofOffline WHERE username=?";
+            "SELECT stanza, creationDate, type FROM ofOffline WHERE username=?";
     private static final String LOAD_OFFLINE_MESSAGE =
             "SELECT stanza FROM ofOffline WHERE username=? AND creationDate=?";
     private static final String SELECT_SIZE_OFFLINE =
@@ -119,13 +121,16 @@ public class OfflineMessageStore extends BasicModule implements UserEventListene
      *
      * @param message the message to store.
      */
-    public void addMessage(Message message) {
+    public void addMessage(Packet message) {
         if (message == null) {
             return;
         }
-        if (!shouldStoreMessage(message)) {
-            return;
+        if (message instanceof Message) {
+            if (!shouldStoreMessage((Message) message)) {
+                return;
+            }
         }
+
         JID recipient = message.getTo();
         String username = recipient.getNode();
         // If the username is null (such as when an anonymous user), don't store.
@@ -151,6 +156,7 @@ public class OfflineMessageStore extends BasicModule implements UserEventListene
             pstmt.setString(3, StringUtils.dateToMillis(new java.util.Date()));
             pstmt.setInt(4, msgXML.length());
             pstmt.setString(5, msgXML);
+            pstmt.setInt(6, message instanceof Message ? 0 : 1);
             pstmt.executeUpdate();
         } catch (Exception e) {
             Log.error(LocaleUtils.getLocalizedString("admin.error"), e);
@@ -175,8 +181,9 @@ public class OfflineMessageStore extends BasicModule implements UserEventListene
      * @param delete   true if the offline messages should be deleted.
      * @return An iterator of packets containing all offline messages.
      */
-    public Collection<OfflineMessage> getMessages(String username, boolean delete) {
-        List<OfflineMessage> messages = new ArrayList<OfflineMessage>();
+    public Collection<Packet> getMessages(String username, boolean delete) {
+//        TODO : REFACTOR THIS METHOD
+        List<Packet> messages = new ArrayList<Packet>();
         SAXReader xmlReader = null;
         Connection con = null;
         PreparedStatement pstmt = null;
@@ -191,29 +198,48 @@ public class OfflineMessageStore extends BasicModule implements UserEventListene
             while (rs.next()) {
                 String msgXML = rs.getString(1);
                 Date creationDate = new Date(Long.parseLong(rs.getString(2).trim()));
-                OfflineMessage message;
-                try {
-                    message = new OfflineMessage(creationDate,
-                            xmlReader.read(new StringReader(msgXML)).getRootElement());
-                } catch (DocumentException e) {
-                    // Try again after removing invalid XML chars (e.g. &#12;)
-                    Matcher matcher = pattern.matcher(msgXML);
-                    if (matcher.find()) {
-                        msgXML = matcher.replaceAll("");
+                int type = rs.getInt(3);
+                if (type == 0) {
+                    OfflineMessage message;
+                    try {
+                        message = new OfflineMessage(creationDate,
+                                xmlReader.read(new StringReader(msgXML)).getRootElement());
+                    } catch (DocumentException e) {
+                        // Try again after removing invalid XML chars (e.g. &#12;)
+                        Matcher matcher = pattern.matcher(msgXML);
+                        if (matcher.find()) {
+                            msgXML = matcher.replaceAll("");
+                        }
+                        message = new OfflineMessage(creationDate,
+                                xmlReader.read(new StringReader(msgXML)).getRootElement());
                     }
-                    message = new OfflineMessage(creationDate,
-                            xmlReader.read(new StringReader(msgXML)).getRootElement());
+
+                    // Add a delayed delivery (XEP-0203) element to the message.
+                    Element delay = message.addChildElement("delay", "urn:xmpp:delay");
+                    delay.addAttribute("from", XMPPServer.getInstance().getServerInfo().getXMPPDomain());
+                    delay.addAttribute("stamp", XMPPDateTimeFormat.format(creationDate));
+                    messages.add(message);
+                } else if (type == 1) {
+                    Presence presence;
+                    try {
+                        presence = new Presence(xmlReader.read(new StringReader(msgXML)).getRootElement(), true);
+
+                    } catch (DocumentException e) {
+                        // Try again after removing invalid XML chars (e.g. &#12;)
+                        Matcher matcher = pattern.matcher(msgXML);
+                        if (matcher.find()) {
+                            msgXML = matcher.replaceAll("");
+                        }
+                        presence = new Presence(xmlReader.read(new StringReader(msgXML)).getRootElement(), true);
+                    }
+
+                    Element delay = presence.addChildElement("delay", "urn:xmpp:delay");
+                    delay.addAttribute("from", XMPPServer.getInstance().getServerInfo().getXMPPDomain());
+                    delay.addAttribute("stamp", XMPPDateTimeFormat.format(creationDate));
+                    messages.add(presence);
+
                 }
 
-                // Add a delayed delivery (XEP-0203) element to the message.
-                Element delay = message.addChildElement("delay", "urn:xmpp:delay");
-                delay.addAttribute("from", XMPPServer.getInstance().getServerInfo().getXMPPDomain());
-                delay.addAttribute("stamp", XMPPDateTimeFormat.format(creationDate));
-                // Add a legacy delayed delivery (XEP-0091) element to the message. XEP is obsolete and support should be dropped in future.
-                delay = message.addChildElement("x", "jabber:x:delay");
-                delay.addAttribute("from", XMPPServer.getInstance().getServerInfo().getXMPPDomain());
-                delay.addAttribute("stamp", XMPPDateTimeFormat.formatOld(creationDate));
-                messages.add(message);
             }
             // Check if the offline messages loaded should be deleted, and that there are
             // messages to delete.

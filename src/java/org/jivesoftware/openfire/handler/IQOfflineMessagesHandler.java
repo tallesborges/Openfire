@@ -2,15 +2,15 @@
  * $RCSfile$
  * $Revision: 1761 $
  * $Date: 2005-08-09 19:34:09 -0300 (Tue, 09 Aug 2005) $
- *
+ * <p>
  * Copyright (C) 2005-2008 Jive Software. All rights reserved.
- *
+ * <p>
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
+ * <p>
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * <p>
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -48,9 +48,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.xmpp.forms.DataForm;
 import org.xmpp.forms.FormField;
-import org.xmpp.packet.IQ;
-import org.xmpp.packet.JID;
-import org.xmpp.packet.PacketError;
+import org.xmpp.packet.*;
 
 /**
  * Implements JEP-0013: Flexible Offline Message Retrieval. Allows users to request number of
@@ -62,7 +60,7 @@ import org.xmpp.packet.PacketError;
 public class IQOfflineMessagesHandler extends IQHandler implements ServerFeaturesProvider,
         DiscoInfoProvider, DiscoItemsProvider {
 
-	private static final Logger Log = LoggerFactory.getLogger(IQOfflineMessagesHandler.class);
+    private static final Logger Log = LoggerFactory.getLogger(IQOfflineMessagesHandler.class);
 
     private static final String NAMESPACE = "http://jabber.org/protocol/offline";
 
@@ -81,7 +79,7 @@ public class IQOfflineMessagesHandler extends IQHandler implements ServerFeature
     }
 
     @Override
-	public IQ handleIQ(IQ packet) throws UnauthorizedException {
+    public IQ handleIQ(IQ packet) throws UnauthorizedException {
         IQ reply = IQ.createResultIQ(packet);
         Element offlineRequest = packet.getChildElement();
 
@@ -89,17 +87,17 @@ public class IQOfflineMessagesHandler extends IQHandler implements ServerFeature
         if (offlineRequest.element("purge") != null) {
             // User requested to delete all offline messages
             messageStore.deleteMessages(from.getNode());
-        }
-        else if (offlineRequest.element("fetch") != null) {
+        } else if (offlineRequest.element("fetch") != null) {
             // Mark that offline messages shouldn't be sent when the user becomes available
             stopOfflineFlooding(from);
             // User requested to receive all offline messages
-            for (OfflineMessage offlineMessage : messageStore.getMessages(from.getNode(), false)) {
-                sendOfflineMessage(from, offlineMessage);
+            for (Object offlineMessage : messageStore.getMessages(from.getNode(), false)) {
+                if (offlineMessage instanceof Message) {
+                    sendOfflineMessage(from, (OfflineMessage) offlineMessage);
+                }
             }
-        }
-        else {
-            for (Iterator it = offlineRequest.elementIterator("item"); it.hasNext();) {
+        } else {
+            for (Iterator it = offlineRequest.elementIterator("item"); it.hasNext(); ) {
                 Element item = (Element) it.next();
                 Date creationDate = null;
                 try {
@@ -113,8 +111,7 @@ public class IQOfflineMessagesHandler extends IQHandler implements ServerFeature
                     if (offlineMsg != null) {
                         sendOfflineMessage(from, offlineMsg);
                     }
-                }
-                else if ("remove".equals(item.attributeValue("action"))) {
+                } else if ("remove".equals(item.attributeValue("action"))) {
                     // User requested to delete specific message
                     if (messageStore.getMessage(from.getNode(), creationDate) != null) {
                         messageStore.deleteMessage(from.getNode(), creationDate);
@@ -136,7 +133,7 @@ public class IQOfflineMessagesHandler extends IQHandler implements ServerFeature
     }
 
     @Override
-	public IQHandlerInfo getInfo() {
+    public IQHandlerInfo getInfo() {
         return info;
     }
 
@@ -185,16 +182,18 @@ public class IQOfflineMessagesHandler extends IQHandler implements ServerFeature
         // Mark that offline messages shouldn't be sent when the user becomes available
         stopOfflineFlooding(senderJID);
         List<DiscoItem> answer = new ArrayList<DiscoItem>();
-        for (OfflineMessage offlineMessage : messageStore.getMessages(senderJID.getNode(), false)) {
-            answer.add(new DiscoItem(senderJID.asBareJID(), offlineMessage.getFrom().toString(),
-                    XMPPDateTimeFormat.format(offlineMessage.getCreationDate()), null));
+        for (Packet offlineMessage : messageStore.getMessages(senderJID.getNode(), false)) {
+            if (offlineMessage instanceof Message) {
+                answer.add(new DiscoItem(senderJID.asBareJID(), offlineMessage.getFrom().toString(),
+                        XMPPDateTimeFormat.format(((OfflineMessage) offlineMessage).getCreationDate()), null));
+            }
         }
 
         return answer.iterator();
     }
 
     @Override
-	public void initialize(XMPPServer server) {
+    public void initialize(XMPPServer server) {
         super.initialize(server);
         infoHandler = server.getIQDiscoInfoHandler();
         itemsHandler = server.getIQDiscoItemsHandler();
@@ -204,14 +203,14 @@ public class IQOfflineMessagesHandler extends IQHandler implements ServerFeature
     }
 
     @Override
-	public void start() throws IllegalStateException {
+    public void start() throws IllegalStateException {
         super.start();
         infoHandler.setServerNodeInfoProvider(NAMESPACE, this);
         itemsHandler.setServerNodeInfoProvider(NAMESPACE, this);
     }
 
     @Override
-	public void stop() {
+    public void stop() {
         super.stop();
         infoHandler.removeServerNodeInfoProvider(NAMESPACE);
         itemsHandler.removeServerNodeInfoProvider(NAMESPACE);
