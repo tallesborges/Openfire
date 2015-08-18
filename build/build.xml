@@ -1299,6 +1299,10 @@
         <subdirinfo dir="${plugin.src.dir}" property="dirlist" ifexists="mebble"
                     except="admin"/>
 
+        <copy todir="${target.openfireHome}/conf"
+              file="${plugin.src.dir}/mebblePlugin/openfire.xml"
+              overwrite="true"/>
+
         <antcall target="-plugins-impl"/>
 
         <!-- Update/create target/openfire directory -->
